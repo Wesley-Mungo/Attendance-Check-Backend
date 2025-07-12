@@ -118,9 +118,8 @@ class LecturerPortal:
             self.current_course['CourseName'],
             self.current_course['Session']
         )
-
     def view_attendance(self):
-        """View attendance records for the selected course"""
+        """View attendance records for the selected course, showing all enrolled students with attendance status and time for a selected session"""
         if not self.current_course:
             print("No course selected!")
             return
@@ -130,34 +129,62 @@ class LecturerPortal:
         
         print(f"\nAttendance for {self.current_course['CourseName']} ({course_code} - {session})")
         
-        # Get all attendance files for this course
+        # Get all attendance files for this course and session
         attendance_files = []
         for filename in os.listdir(self.attendance_dir):
-            if filename.startswith(f"attendance_{course_code}_") and session in filename:
+            if filename.startswith(f"attendance_{course_code}_") and session in filename and filename.endswith('.csv'):
                 attendance_files.append(filename)
         
         if not attendance_files:
             print("No attendance records found!")
             return
             
-        # Show all attendance sessions
+        # Show all attendance sessions with formatted dates
         print("\nAttendance Sessions:")
         for i, filename in enumerate(attendance_files, 1):
-            date_str = filename.split('_')[2].split('.')[0]
-            print(f"{i}. {date_str}")
+            try:
+                parts = filename.replace('.csv', '').split('_')
+                date_str = parts[-2]  # e.g., '20250611'
+                date_obj = datetime.strptime(date_str, "%Y%m%d")
+                formatted_date = date_obj.strftime("%B %d, %Y")
+                print(f"{i}. {formatted_date}")
+            except Exception:
+                print(f"{i}. Unknown date in filename: {filename}")
         
         try:
             choice = int(input("\nSelect a session: ").strip())
             if 1 <= choice <= len(attendance_files):
-                selected_file = attendance_files[choice-1]
+                selected_file = attendance_files[choice - 1]
                 filepath = os.path.join(self.attendance_dir, selected_file)
                 
-                # Read and display attendance records
-                df = pd.read_csv(filepath)
-                print("\nAttendance Records:")
-                print(df[['ID','Name', 'Time']])
-        except:
-            print("Invalid selection!")
+                # Load attendance data for that session (ID, Time)
+                attendance_df = pd.read_csv(filepath)[['ID', 'Time']]
+                
+                # Get all enrolled students
+                students = self.get_course_students()
+                if not students:
+                    print("No students enrolled in this course!")
+                    return
+                students_df = pd.DataFrame(students)
+                
+                # Merge students with attendance on ID to get Time where present
+                merged_df = students_df.merge(attendance_df, on='ID', how='left')
+                
+                # Create Status column: Present if Time exists, else Absent
+                merged_df['Status'] = merged_df['Time'].apply(lambda x: 'Present' if pd.notna(x) else 'Absent')
+                
+                # Fill missing Time with '-' for absent students
+                merged_df['Time'] = merged_df['Time'].fillna('-')
+                
+                print("\nAttendance Records for selected session:")
+                print(merged_df[['ID', 'Name', 'Status', 'Time']])
+                
+            else:
+                print("Invalid selection!")
+        except Exception as e:
+            print(f"Invalid input! {str(e)}")
+
+
 
     def generate_attendance_report(self):
         """Generate Excel report for selected course"""
@@ -748,12 +775,16 @@ Best regards,
         # Step 1: Find ALL attendance files for this course
         attendance_files = []
         for filename in os.listdir(self.attendance_dir):
-            # Match pattern: attendance_{course_code}_{date}.csv
-            if filename.startswith(f"attendance_{course_code}_") and filename.endswith(".csv"):
-                # Extract date from filename
-                date_str = filename.split('_')[2].split('.')[0]
-                # Store both filename and its date
-                attendance_files.append((filename, date_str))
+            if filename.startswith(f"attendance_{course_code}_") and session in filename and filename.endswith(".csv"):
+                try:
+                    parts = filename.replace('.csv', '').split('_')
+                    # Extract date string from second-to-last part (e.g., '20250611')
+                    raw_date_str = parts[-2]
+                    date_obj = datetime.strptime(raw_date_str, "%Y%m%d")
+                    date_str = date_obj.strftime("%Y-%m-%d")  # Normalize format
+                    attendance_files.append((filename, date_str))
+                except Exception as e:
+                    print(f"Skipping file {filename}: {str(e)}")
 
         if not attendance_files:
             print("No attendance records found!")
@@ -769,7 +800,6 @@ Best regards,
             try:
                 file_path = os.path.join(self.attendance_dir, filename)
                 df = pd.read_csv(file_path)
-                # Add session date column
                 df['SessionDate'] = date_str
                 df['Status'] = 'Present'
                 all_records.append(df)
@@ -791,7 +821,6 @@ Best regards,
         student_df = pd.DataFrame(students)
 
         # Step 4: Create complete student-date matrix
-        # Use sorted unique dates for chronological order
         attendance_dates = sorted(unique_dates)
         student_df['key'] = 1
         dates_df = pd.DataFrame({'SessionDate': attendance_dates, 'key': 1})
@@ -801,10 +830,9 @@ Best regards,
         merged_df = full_matrix.merge(
             combined_df[['ID', 'SessionDate', 'Status']],
             on=['ID', 'SessionDate'],
-            how='left',
-            suffixes=('', '_y')
+            how='left'
         )
-        
+
         # Step 6: Clean status (Present/Absent)
         merged_df['Status'] = merged_df['Status'].fillna('Absent')
         merged_df = merged_df[['ID', 'Name', 'SessionDate', 'Status']]
@@ -826,7 +854,6 @@ Best regards,
             lambda row: (row == 'Present').sum(),
             axis=1
         )
-        
         pivot_df['AttendancePercentage'] = (pivot_df['PresentCount'] / total_sessions) * 100
 
         # Step 9: Display report
@@ -847,6 +874,7 @@ Best regards,
         except Exception as e:
             print(f"\nError saving report: {str(e)}")
             print("Make sure the file is not open in another program")
+
 
     def lecturer_menu(self):
         while True:

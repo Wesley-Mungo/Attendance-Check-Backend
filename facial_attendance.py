@@ -16,7 +16,7 @@ class FaceAttendanceSystem:
         self.embedder = FaceNet()
         self.EMBEDDING_DIM = 512  # FaceNet produces 512D embeddings
 
-        self.face_threshold = 0.6
+        self.face_threshold = 0.65
         self.required_shots = 10
         self.current_course = None
         
@@ -649,7 +649,7 @@ class FaceAttendanceSystem:
             print(f"\nDepartment: {dept}")
             print("-" * 40)
             for idx, student in enumerate(student_list, 1):
-                print(f"{idx}. {student['Name']} {student['UserID']}")
+                print(f"{idx}. {student['Name']} {student['UserID']} {student['Email']}")
             print(f"Total: {len(student_list)} students")
 
     def view_course_attendance_summary(self):
